@@ -18,7 +18,7 @@ import MallocInterposerC
 /// pointer to it plus the in-hook guard bit.
 private final class ThreadState {
     /// Allocations recorded by the hook on this thread, and their bytes.
-    var count = 0
+    var allocations = 0
     var bytes = 0
     /// Allocations made by the hook itself on this thread.
     var nested = 0
@@ -58,7 +58,7 @@ private final class ThreadState {
     }
 
     func reset() {
-        count = 0
+        allocations = 0
         bytes = 0
         nested = 0
     }
@@ -74,7 +74,7 @@ private func handleAllocation(size: Int, allocatesItself: Bool) {
     // Set the guard before anything can allocate, including creating the state.
     allocation_hook_state_set(word | ThreadState.inHookFlag)
     let state = ThreadState.from(word) ?? ThreadState.current
-    state.count += 1
+    state.allocations += 1
     state.bytes += size
     if allocatesItself {
         // Stands in for the hook's real work, e.g. capturing a backtrace.
@@ -116,7 +116,7 @@ extension AlignedPointerSafetyTests {
                     replacement_free(replacement_malloc(64))
                 }
             }
-            #expect(state.count == iterations)
+            #expect(state.allocations == iterations)
             #expect(state.bytes == 64 * iterations)
             #expect(state.nested == 0)
         }
@@ -133,7 +133,7 @@ extension AlignedPointerSafetyTests {
                     replacement_free(replacement_realloc(small, 256))
                 }
             }
-            #expect(state.count == 3 * iterations)
+            #expect(state.allocations == 3 * iterations)
             #expect(state.bytes == (64 + 16 + 256) * iterations)
         }
 
@@ -147,7 +147,7 @@ extension AlignedPointerSafetyTests {
                     replacement_free(replacement_malloc(64))
                 }
             }
-            #expect(state.count == 0)
+            #expect(state.allocations == 0)
         }
 
         /// Installing NULL removes the hook.
@@ -162,7 +162,7 @@ extension AlignedPointerSafetyTests {
                 replacement_free(replacement_malloc(64))
             }
             malloc_interposer_disable()
-            #expect(state.count == 0)
+            #expect(state.allocations == 0)
         }
 
         /// A hook that allocates is re-entered once per own allocation; with its
@@ -181,7 +181,7 @@ extension AlignedPointerSafetyTests {
                 }
             }
             let after = mallocCount()
-            #expect(state.count == iterations)
+            #expect(state.allocations == iterations)
             #expect(state.nested == iterations)
             #expect(after - before >= Int64(2 * iterations), "allocations made by the hook must be counted")
         }
@@ -197,11 +197,11 @@ extension AlignedPointerSafetyTests {
             DispatchQueue.global().async { [iterations] in
                 start.wait()
                 let workerState = ThreadState.current
-                let before = workerState.count
+                let before = workerState.allocations
                 for _ in 0 ..< iterations {
                     replacement_free(replacement_malloc(64))
                 }
-                workerCount.value = workerState.count - before
+                workerCount.value = workerState.allocations - before
                 done.signal()
             }
 
@@ -214,7 +214,7 @@ extension AlignedPointerSafetyTests {
                 }
                 done.wait()
             }
-            #expect(state.count == 2 * iterations)
+            #expect(state.allocations == 2 * iterations)
             #expect(workerCount.value >= iterations)
         }
 
